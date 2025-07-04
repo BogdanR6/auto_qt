@@ -61,8 +61,58 @@ EOF
 }
 
 build_and_compile() {
-  cmake -S . -B ${BUILD_DIR} -G Ninja
+  if [[ ! -d $BUILD_DIR ]]; then
+    cmake -S . -B ${BUILD_DIR} -G Ninja
+  fi
   cmake --build ${BUILD_DIR}
+}
+
+generate_cmake_for_dir() {
+  local dir=$1
+  local cmake_file="${dir}/CMakeLists.txt"
+
+  [[ -f $cmake_file ]] && return
+
+  local has_code_files=false
+  local subdirs=()
+
+  for item in "$dir"/*; do
+    [[ -d $item ]] && subdirs+=("${item##*/}")
+    [[ $item == *.cpp || $item == *.h || $item == *.hpp ]] && has_code_files=true
+  done
+
+  if $has_code_files; then
+    cat  > "$cmake_file" << EOF
+# Library for $dir
+add_library(${dir##*/} STATIC)
+
+target_sources(${dir##*/}
+  PRIVATE
+    \$\{CMAKE_CURRENT_SOURCE_DIR\}/*.cpp
+    \$\{CMAKE_CURRENT_SOURCE_DIR\}/*.h
+)
+
+target_link_libraries(${dir##*/} PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)
+EOF
+  else
+    cat > "$cmake_file" << EOF 
+# Interface library for $dir
+add_library(${dir##*/} INTERFACE)
+
+target_include_directories(${dir##*/} INTERFACE \$\{CMAKE_CURRENT_SOURCE_DIR\})
+
+# Add subdirectories
+EOF
+
+    for sub in "${subdirs[@]}"; do
+      echo "add_subdirectory(${sub})" >> "$cmake_file"
+      echo "target_link_libraries(${dir##*/} INTERFACE ${sub})" >> "$cmake_file"
+    done
+  fi
+
+  for sub in "${subdirs[@]}"; do
+    generate_cmake_for_dir "$dir/$sub"
+  done
 }
 
 # check if the root CMakeLists exists
@@ -79,7 +129,8 @@ main () {
   # PROJECT_NAME=$(awk '/^project\(/ { gsub(/[()]/, " ", $0); print $2; exit }' CMakeLists.txt)
 
   if [ ! -d ${SRC_DIR} ]; then
-    mkdir ${SRC_DIR}
+    mkdir -p "$SRC_DIR"
+    ls -ld "$SRC_DIR"
   fi
 
   if [ ! -f ${SRC_DIR}/main.cpp ]; then
@@ -90,32 +141,10 @@ main () {
     generate_src_cmake
   fi
 
-  # create cmake files for all directories
-  # WARNING: it only supports two layers of deepness inside src folders and 
-  # it assumes that a folder with folders will create an interface and the folders will create libraries
-  # DIRS_TO_COMPILE=(`find src/ -type d -maxdepth 1`)
-  # for DIR in $DIRS_TO_COMPILE
-  # do
-  #   DIR_NAME=$DIR
-  #   FILES_TO_COMPILE=(`find ${DIR} -type f -maxdepth 1 -name '*.cpp'`)
-  #   if [[ -z $FILES_TO_COMPILE ]]; then
-  #     NEW_DIRS_TO_COMPILE=(`find ${DIR} -type d -maxdepth 1`)
-  #     DIRS_TO_COMPILE+=$NEW_DIRS_TO_COMPILE
-  #     echo "" > dir/CMakeLists.txt
-  #     for SUBDIR in $NEW_DIRS_TO_COMPILE
-  #     do
-  #       echo "add_subdirectory(${SUBDIR})" >> dir/CMakeLists.txt
-  #     done
-  # 
-  #     echo "" >> dir/CMakeLists.txt # just a new line for aesthetics
-  #     echo "add_library(${DIR_NAME} INTERFACE)"
-  #     echo "" >> dir/CMakeLists.txt # just a new line for aesthetics
-  #     echo "target_link_libraries(${DIR} INTERFACE ${NEW_DIRS_TO_COMPILE} Qt6::Core Qt6::Widgets Qt6::Gui)"
-  #   else
-  #     echo "add_library(${DIR_NAME} PUBLIC ${FILES_TO_COMPILE})"
-  #   fi
-  # 
-  # done
+  src_dirs=("${(@f)$(find src/ -maxdepth 1 -type d)}")
+  for dir in "${src_dirs[@]}"; do
+    generate_cmake_for_dir "$dir"
+  done
 
   build_and_compile
 
