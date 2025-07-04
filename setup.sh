@@ -82,15 +82,16 @@ generate_cmake_for_dir() {
   done
 
   if $has_code_files; then
-    cat  > "$cmake_file" << EOF
-# Library for $dir
+    cat > "$cmake_file" << EOF
+# Library for ${dir}
 add_library(${dir##*/} STATIC)
 
-target_sources(${dir##*/}
-  PRIVATE
-    \$\{CMAKE_CURRENT_SOURCE_DIR\}/*.cpp
-    \$\{CMAKE_CURRENT_SOURCE_DIR\}/*.h
+file(GLOB ${dir^^}_SOURCES
+    \${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
+    \${CMAKE_CURRENT_SOURCE_DIR}/*.h
 )
+
+target_sources(${dir##*/} PRIVATE \${${dir^^}_SOURCES})
 
 target_link_libraries(${dir##*/} PRIVATE Qt6::Core Qt6::Widgets Qt6::Gui)
 EOF
